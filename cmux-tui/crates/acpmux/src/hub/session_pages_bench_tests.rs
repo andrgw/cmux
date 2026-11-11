@@ -93,3 +93,58 @@ async fn seeded_narrow_reads_exclude_peers_and_keep_closed_links() {
         "PERF harness-watch bytes={watch_bytes}->{narrow_bytes} ms={watch_ms:.3}->{narrow_ms:.3}"
     );
 }
+
+/// A hub on a memory store with `closed` closed chats, then `idle` idle ones, the closed ones
+/// newest (each a millisecond apart): a page from the top is closed rows.
+fn seeded(closed: usize, idle: usize) -> Arc<Hub> {
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    for i in 0..closed + idle {
+        let status = if i < idle { "idle" } else { "closed" };
+        let meta = json!({"schema": "acpmux.session.v1", "id": format!("s-{i:05}"),
+            "name": format!("chat-{i}"), "harness": "claude", "cwd": "/work",
+            "status": status, "createdAt": 1, "updatedAt": 1_000 + i});
+        store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+    }
+    Hub::new(cfg, store)
+}
+
+/// Leo 2026-11-11, 11,236 chats (10,874 closed): `acpmux ls --limit 5` took 5.4 s, as long as
+/// `--limit 1000`, because a page was cut from a list of every chat's row. A page of five builds
+/// at most its five rows, at 500 chats and at 5,000, and so does the next page and a watch's
+/// first page.
+#[tokio::test]
+async fn a_page_of_five_builds_its_five_rows_not_every_chat() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let mut times = Vec::new();
+    for n in [500_usize, 5_000] {
+        let hub = seeded(n - n / 20, n / 20);
+        let built = || hub.closed_summary_builds.load(SeqCst);
+        let before = built();
+        let (first, _, ms) = read(&hub, "_acpmux/sessions", json!({"limit": 5})).await;
+        let rows = first["sessions"].as_array().unwrap();
+        assert_eq!(rows.len(), 5);
+        assert_eq!(rows[0]["sessionId"], format!("s-{:05}", n - 1));
+        assert!(rows.iter().all(|r| r["status"] == "closed"));
+        let first_built = built() - before;
+        assert!(first_built <= 5, "{n} chats: a page of 5 built {first_built} closed rows");
+        let before = built();
+        let (second, _, _) = read(
+            &hub,
+            "_acpmux/sessions",
+            json!({"limit": 5, "cursor": first["nextCursor"].clone()}),
+        )
+        .await;
+        assert_eq!(second["sessions"][0]["sessionId"], format!("s-{:05}", n - 6));
+        let second_built = built() - before;
+        assert!(second_built <= 5, "{n} chats: the next page built {second_built} closed rows");
+        let before = built();
+        let (watch, _, _) = read(&hub, "_acpmux/watch", json!({"enabled": true, "limit": 5})).await;
+        assert_eq!(watch["sessions"].as_array().unwrap().len(), 5);
+        let watch_built = built() - before;
+        assert!(watch_built <= 5, "{n} chats: a watch's page of 5 built {watch_built} closed rows");
+        times.push((n, ms));
+    }
+    println!("PERF page-of-5 {times:?} (chats, ms)");
+}
