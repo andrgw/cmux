@@ -195,7 +195,7 @@ impl FullRows {
     }
 }
 
-type Built = (String, Vec<Range<usize>>, Vec<Value>);
+pub(crate) type Built = (String, Vec<Range<usize>>, Vec<Value>);
 
 impl Snapshot {
     fn new(
@@ -349,11 +349,10 @@ impl Snapshot {
     }
 
     /// The reply to a paged `params` (a `limit`, or a census's `orderBy`), cut from the shared
-    /// text, with tools when `full` is given: the rows `session_list_reply` picks, as many as fit
-    /// in `budget` bytes, at least one, and `nextCursor` first. A page cut short by its bytes ends
-    /// with the `nextCursor` of its last row, as a page of that many rows would: 1000 rows of a
-    /// busy host with usage were more than one message, refused whole on every retry. A row
-    /// larger than `budget` alone is trimmed ([`row_text`]).
+    /// text, with tools when `full` is given: the rows `session_list_reply` picks, cut by
+    /// [`cut_page`]. A daemon builds a page from its own rows instead (`page_first.rs`); this is
+    /// the reference that page must equal, row for row and byte for byte.
+    #[cfg(test)]
     pub(crate) fn page(
         &self,
         full: Option<&FullRows>,
@@ -367,21 +366,8 @@ impl Snapshot {
         let picked = super::session_pages::session_list_reply_borrowed(keys, params)?;
         let rows =
             picked.get("sessions").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
-        let mut next = picked.get("nextCursor").cloned();
-        let (mut page, mut used) = (Vec::with_capacity(rows.len()), 0_usize);
-        for (n, key) in rows.iter().enumerate() {
-            let row = row_text(text, spans, key, budget);
-            // One more byte for the comma between rows.
-            let total = used.saturating_add(row.len()).saturating_add(1);
-            if n > 0 && total > budget {
-                let last = rows.get(n.saturating_sub(1)).unwrap_or(key);
-                next = Some(Value::String(page_cursor(params, last)));
-                break;
-            }
-            used = total;
-            page.push(row);
-        }
-        Ok(page_text(next.map(|next| next.to_string()), &page))
+        let next = picked.get("nextCursor").cloned();
+        Ok(cut_page((text, spans.as_slice()), rows, next, params, budget))
     }
 
     /// Every summary, parsed back.
@@ -440,6 +426,55 @@ pub(crate) fn page_text<R: AsRef<str>>(next: Option<String>, rows: &[R]) -> Stri
     text.push_str("]}");
     debug_assert_eq!(text.len(), size);
     text
+}
+
+/// A paged reply's text: `rows` (paging keys, each naming its row in `text` by `at`), as many as
+/// fit in `budget` bytes, at least one, and `next` (the picked page's `nextCursor`) first. A page
+/// cut short by its bytes ends with the `nextCursor` of its last row, as a page of that many rows
+/// would: 1000 rows of a busy host with usage were more than one message, refused whole on every
+/// retry. A row larger than `budget` alone is trimmed ([`row_text`]).
+pub(crate) fn cut_page(
+    (text, spans): (&str, &[Range<usize>]),
+    rows: &[Value],
+    mut next: Option<Value>,
+    params: &Value,
+    budget: usize,
+) -> String {
+    let (mut page, mut used) = (Vec::with_capacity(rows.len()), 0_usize);
+    for (n, key) in rows.iter().enumerate() {
+        let row = row_text(text, spans, key, budget);
+        // One more byte for the comma between rows.
+        let total = used.saturating_add(row.len()).saturating_add(1);
+        if n > 0 && total > budget {
+            let last = rows.get(n.saturating_sub(1)).unwrap_or(key);
+            next = Some(Value::String(page_cursor(params, last)));
+            break;
+        }
+        used = total;
+        page.push(row);
+    }
+    page_text(next.map(|next| next.to_string()), &page)
+}
+
+/// `rows`, in the order given (not sorted), as a list's text, where each is in it, and the
+/// paging keys of each (`at` its place): what [`cut_page`] cuts.
+pub(crate) fn serialize_in_order(rows: &[Value]) -> Built {
+    let prefix = br#"{"sessions":["#;
+    let mut whole = Vec::from(&prefix[..]);
+    let (mut spans, mut keys) = (Vec::with_capacity(rows.len()), Vec::with_capacity(rows.len()));
+    for (at, row) in rows.iter().enumerate() {
+        if at > 0 {
+            whole.push(b',');
+        }
+        let start = whole.len();
+        // A Value always serializes, and Vec's writer cannot fail.
+        let _ = serde_json::to_writer(&mut whole, row);
+        spans.push(start..whole.len());
+        keys.push(RowKey::of(row, at).value(at));
+    }
+    whole.extend_from_slice(b"]}");
+    // serde_json writes UTF-8.
+    (String::from_utf8(whole).unwrap_or_default(), spans, keys)
 }
 
 /// Spare capacity a page keeps for its reply line's frame (`{"id":..,"jsonrpc":"2.0",
