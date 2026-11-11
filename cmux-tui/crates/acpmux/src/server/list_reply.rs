@@ -135,12 +135,17 @@ async fn send_list(
 
 /// A page by `limit`, or a census in its own order (`orderBy`): its own rows, picked before any is
 /// built (`Hub::session_page_rows`), at most `limit` of them and at most [`LIST_PAGE_BYTES`]
-/// (`list_guard::cut_page`, as the whole list's page cuts them). It reads no list snapshot, so no
-/// list pace holds it: it costs its rows, not the list. A page whose list a notice overtook is
+/// (`list_guard::cut_page`, as the whole list's page cuts them). It reads no list snapshot, and
+/// the list pace charges it its rows' share of the list (`ListGuard::share_rows`): a page of five
+/// costs next to nothing, one of every row about a list. A page whose list a notice overtook is
 /// read again, as a list is ([`send_list`]).
 async fn page(hub: &Hub, conn: &Conn, params: &Value, tools: bool) -> Result<Value, RpcError> {
     use crate::hub::list_guard::{cut_page, serialize_in_order};
     let raw = conn.raw_text;
+    let guard = &hub.list_guard;
+    let limit = params.get("limit").and_then(Value::as_u64);
+    let wait = guard.reserve(&conn.list_pace, guard.share_rows(limit)).map_err(busy)?;
+    tokio::time::sleep(wait).await;
     for reads in 0..=REBUILDS {
         // Read before the rows are: a notice counted after it may tell a change they lack.
         let seen = conn.notices.load(Ordering::SeqCst);

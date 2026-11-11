@@ -742,6 +742,13 @@ impl ListGuard {
         limit.map_or(1.0, |limit| (limit as f64 / rows).clamp(PAGE_MIN, 1.0))
     }
 
+    /// The share of the list a page built from its own rows (`page_first.rs`) costs: its `limit`
+    /// rows of the last list's, with no floor, since it builds no other row.
+    pub(crate) fn share_rows(&self, limit: Option<u64>) -> f64 {
+        let rows = self.rows.load(Ordering::Relaxed).max(1) as f64;
+        limit.map_or(1.0, |limit| (limit as f64 / rows).clamp(0.0, 1.0))
+    }
+
     /// The share of the list a page of at most `budget` bytes costs: a whole list cut into
     /// byte pages costs about one list in all, not one per page.
     pub(crate) fn share_bytes(&self, budget: usize) -> f64 {
