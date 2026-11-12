@@ -56,12 +56,13 @@ import Testing
     }
 
     /// layout-constants.patch: `kLocationBarTrailingIconSize` 18 (Chrome 20),
-    /// `kLocationBarChildCornerRadius` 6, `kLocationBarMargin` 6 (twice the base padding). The bar is
-    /// the chrome row (in place of `kLocationBarHeight` 28).
+    /// `kLocationBarMargin` 6 (twice the base padding). The bar is the chrome row (in place of
+    /// `kLocationBarHeight` 28), rounded as Chrome rounds its tab (Lawrence 2026-11-11), so the chip
+    /// nests in it: the bar's radius less its 2 pt inset, in place of `kLocationBarChildCornerRadius` 6.
     @Test func omnibarKeepsHeliumsLocationBarMetrics() {
         #expect(OmnibarStyle.trailingIconSize == 18)
         #expect(OmnibarStyle.barHeight == Metrics.chromeRowHeight)
-        #expect(OmnibarStyle.chipCornerRadius == 6)
+        #expect(OmnibarStyle.chipCornerRadius == max(0, OmnibarStyle.cardCornerRadius - OmnibarStyle.chipLeading))
         #expect(OmnibarStyle.barMargin == 6)
         #expect(OmnibarStyle.buttonSpacing == 3)
     }

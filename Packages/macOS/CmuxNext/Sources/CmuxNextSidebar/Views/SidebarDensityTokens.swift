@@ -70,11 +70,9 @@ enum SidebarDensityTokens {
     static var depthIndent: CGFloat { Metrics.space4 }
     /// The corner radius of every row fill: pinned rows, group headers and workspace rows share it,
     /// so their fills line up at each density. It is the tab pill's radius (`Metrics.tabCornerRadius`),
-    /// one token for both (Lawrence 2026-11-05: "workspace roundness needs to be same as tabs roundness"), except at
-    /// Default, where it is Codex's row corner (``SidebarRowTokens/codexCornerRadius``, 10 on a 30 pt row; #39956).
-    static var rowCornerRadius: CGFloat {
-        matchesCodex ? (SidebarRowTokens.current.codexCornerRadius ?? Metrics.tabCornerRadius) : Metrics.tabCornerRadius
-    }
+    /// one token for both (Lawrence 2026-11-05: "workspace roundness needs to be same as tabs roundness"), at every
+    /// density, Default included: Chrome's 8 on its 30 pt row (Lawrence 2026-11-11: "same roundness as chrome").
+    static var rowCornerRadius: CGFloat { Metrics.tabCornerRadius }
     static var sectionSpacing: CGFloat { isComfortable ? Metrics.space5 : Metrics.space4 }
     static var topPadding: CGFloat { isComfortable ? Metrics.space3 : Metrics.space2 }
 }

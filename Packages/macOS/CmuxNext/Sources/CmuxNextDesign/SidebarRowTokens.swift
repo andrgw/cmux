@@ -77,7 +77,8 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
     /// (https://github.com/manaflow-ai/cmux/issues/39956, measured in https://github.com/manaflow-ai/cmux/issues/28793): the app at
     /// Default density and the sidebar at its own default, Compact. Codex stacks 30 px rows with no gap
     /// (`--height-token-nav-row`), pads their content 8 px from the fill (`--padding-row-x`) inside a 6 px outer
-    /// inset, and rounds the fill 10 px (`--radius-token-row`). Every other density keeps its own rows, so
+    /// inset. The fill rounds as a tab does, Chrome's 8 on 30 (Lawrence 2026-11-11, "same roundness as chrome"),
+    /// not Codex's 10 px (`--radius-token-row`). Every other density keeps its own rows, so
     /// `appearance.density`, `sidebar.density` and the metric overrides still pick them.
     public var matchesCodex: Bool { base.isCodexDensity && density == .compact }
     /// A list or band row's height: the row and the gap under it as one fill when ``matchesCodex``, so the pitch
@@ -98,9 +99,6 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
     /// A row's content (icon, title, trailing marks) from its fill's edge: `space4` (8 pt) when ``matchesCodex``,
     /// else the outer inset.
     public var contentInset: CGFloat { matchesCodex ? base.space4 : horizontalInset }
-    /// The row fill's corner when ``matchesCodex``: a third of the row (10 on 30, Codex's ratio); nil keeps the tab
-    /// pill's radius.
-    public var codexCornerRadius: CGFloat? { matchesCodex ? (listRowHeight / 3).rounded() : nil }
     /// A row title's and a detail line's text size.
     public var titleSize: CGFloat { base.body + textSize.textStep }
     public var captionSize: CGFloat { base.caption + textSize.textStep }
