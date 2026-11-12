@@ -409,7 +409,7 @@ impl World {
             }
             return;
         };
-        let roll = self.rng.below(107);
+        let roll = self.rng.below(113);
         match roll {
             0..30 => {
                 let code = [0u16, 11, 8, 2, 14, 36, 51, 53][self.rng.below(8)];
@@ -532,10 +532,11 @@ impl World {
                 let record = self.key(window, model, 9, modifiers, binding);
                 self.press(record);
             }
-            91..92 => {
+            // Seven slots: a page owns only Find and its neighbors now, so its
+            // offers need these keys as often as the page-editing chords were.
+            91..92 | 107..113 => {
                 // Find and its neighbors go to a page first; Cmd-B (Toggle
-                // Sidebar) runs before it (Lawrence 2026-11-11). Three in four
-                // keys are offers, so the offer mutants stay caught.
+                // Sidebar) runs before it (Lawrence 2026-11-11).
                 let (action, tier, code) = match self.rng.below(4) {
                     0 => ("find", Tier::Navigation, 3),
                     1 => ("findNext", Tier::Navigation, 5),
