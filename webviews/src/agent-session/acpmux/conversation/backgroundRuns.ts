@@ -42,6 +42,9 @@ type MemberKind = "finished" | "stopped" | "failed" | "scheduled" | "other";
 /// What a member adds to its run's line, or undefined for a row that is no member. `inline`: the
 /// default look, where background turns draw no line, so only shell ends are members.
 function memberKind(row: AcpmuxRow, inline: boolean): MemberKind | undefined {
+  // Inside an opened "Worked for", each row keeps its place among the work it ran with
+  // (turns.ts `settled`): the reader opened that fold to see them.
+  if (row.settled) return undefined;
   if (row.kind === BACKGROUND_TURN) {
     if (inline) return undefined;
     const turn = row.background;

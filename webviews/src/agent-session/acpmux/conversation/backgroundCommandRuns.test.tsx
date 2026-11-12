@@ -101,3 +101,8 @@ test("the default look still folds no background turn lines, only shell ends", (
   const rows = [line("a"), line("b")];
   expect(foldBackgroundRuns(rows, new Set())).toBe(rows);
 });
+
+test("ends inside an opened Worked for keep their places; they never fold there", () => {
+  const rows = [end("a"), end("b")].map((entry) => ({ ...entry, settled: true }));
+  expect(foldBackgroundRuns(rows, new Set())).toBe(rows);
+});

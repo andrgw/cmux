@@ -1900,7 +1900,8 @@ const staysOut = (row: AcpmuxRow) =>
   (row.kind === "plan" && row.plan !== undefined) ||
   // A background command that finished or was stopped is the turn's work, and folds with it as its
   // call does (Leo, 2026-11-11: "Background command completed. Do those not count as the f-ing
-  // works for?"). One that failed stays in sight, as it does in a run of them (backgroundRuns.ts).
+  // works for?"). One that failed stays in sight; two or more in a row outside the fold draw as one
+  // counted line (backgroundRuns.ts).
   (row.kind === "backgroundTask" && row.backgroundTask?.state === "failed") ||
   // An error or a refusal the pane noted, and an ask still waiting on the person.
   row.kind === "notice" ||
