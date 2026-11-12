@@ -18,7 +18,7 @@ public struct TopRowSpacing {
     /// Every top-row button's height and largest width: the band's toggle, Back and Forward, and the sidebar's +.
     public static var buttonSide: CGFloat { Metrics.sidebarHeaderHeight }
 
-    /// Where one glyph's ink sits in its image (``GlyphInk``).
+    /// Where one glyph's ink sits in its image (``GlyphInkMeasure``).
     public struct Glyph: Equatable, Sendable {
         /// The image's width.
         public var imageWidth: CGFloat

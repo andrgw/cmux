@@ -150,7 +150,7 @@ final class TitlebarToolbarBand: NSView {
 
     /// The lights' inset, set by the window: the one ink gap between the lights and each glyph (`TopRowSpacing`).
     var glyphGap: CGFloat = Metrics.space3 { didSet { if glyphGap != oldValue { needsLayout = true } } }
-    private let ink = GlyphInk()
+    private let ink = GlyphInkMeasure()
     var slots: TopRowSpacing.Slots { ink.slots(for: [sidebarToggle, backButton, forwardButton].map(\.image), gap: glyphGap) }
     override func layout() {
         super.layout()
