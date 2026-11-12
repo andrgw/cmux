@@ -361,6 +361,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       });
       await page.locator(".acpmux-composer-prompt").click();
       await page.keyboard.type("two");
+      console.log("DIAG-typed", await page.evaluate(() => ({ text: document.querySelector<HTMLElement>(".acpmux-composer-prompt")!.innerText, active: document.activeElement?.className, popups: [...document.querySelectorAll(".ui-popup")].map((n) => n.className) })));
       // Each painted frame from the press: the field's text, the rows drawn and the list's height.
       await page.evaluate(() => {
         const frames: { text: string; rows: number; height: number; cut: boolean }[] = [];
@@ -387,6 +388,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       );
       // The first frame whose field no longer holds the sent words.
       const cleared = frames.findIndex((frame) => !frame.text.includes("two"));
+      console.log("DIAG", JSON.stringify({ before, frames: frames.slice(0, 6), last: frames.at(-1) }));
       expect(cleared).toBeGreaterThan(0);
       // No frame with the field cleared and the prompt nowhere.
       expect(frames.slice(cleared).every((frame) => frame.rows === 2)).toBe(true);
