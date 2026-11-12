@@ -1542,7 +1542,11 @@ impl Hub {
         mut visit: impl FnMut(Value),
     ) {
         let states = self.peer_link_states();
-        let mut emit = |r: &RemoteSession| visit(listed_remote_row(r, &states));
+        let mut emit = |r: &RemoteSession| {
+            #[cfg(test)]
+            self.remote_rows_copied.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            visit(listed_remote_row(r, &states));
+        };
         // One snapshot, held through the walk: no row is copied first, and a write meanwhile
         // (even one the visitor makes) leaves what this walk sees unchanged.
         let rows = self.remote_sessions.snapshot();

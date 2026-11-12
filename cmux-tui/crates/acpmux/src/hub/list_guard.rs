@@ -15,9 +15,10 @@
 //! - **Paced.** [`BURST`] builds back to back, then one per window ([`PACE`] times the
 //!   last build's cost, at most [`MAX_WINDOW`]): about 1/32 of a core however many ask.
 //!   Per connection, two lists back to back, then one per window; all connections
-//!   together, [`REPLIES`] per window. A page costs its share of the rows, at least
-//!   [`PAGE_MIN`]. The first list is built before it is paced, so the pace is known. A
-//!   request that would wait more than [`MAX_WAIT`] is refused, to try again later.
+//!   together, [`REPLIES`] per window. A page by `limit` costs its rows' share of the list
+//!   (`ListGuard::share_rows`), a byte page its bytes' share, at least [`BYTE_PAGE_MIN`].
+//!   The first list is built before it is paced, so the pace is known. A request that
+//!   would wait more than [`MAX_WAIT`] is refused, to try again later.
 //!
 //! Cleanup: each build starts one task that drops its snapshot when the window ends
 //! (unless a newer build replaced it); it holds a weak reference and ends after one
@@ -40,8 +41,11 @@ const BURST: u32 = 4;
 const CONN_BURST: u32 = 2;
 /// Lists all connections together read per window, after as many back to back.
 const REPLIES: u32 = 8;
-/// The least a page costs, in lists: it reads every row's key to find its rows.
-const PAGE_MIN: f64 = 1.0 / 16.0;
+/// The least a byte page of the whole list costs, in lists: it reads the keys once and copies
+/// its megabyte of the shared text. Every list reply is a page of at most
+/// `rpc::REPLY_PAGE_BYTES` (`server/list_reply.rs`), so a 31 MB list is about 31 of them: at
+/// 1/16 each, one whole read would cost two lists and be paced as such.
+const BYTE_PAGE_MIN: f64 = 1.0 / 64.0;
 /// The longest a list request waits for its turn; a longer wait is refused.
 pub(crate) const MAX_WAIT: Duration = Duration::from_secs(30);
 
@@ -736,12 +740,6 @@ impl ListGuard {
         Duration::from_nanos(self.window_nanos.load(Ordering::Relaxed))
     }
 
-    /// The share of the list a page of `limit` rows costs (None: all of it).
-    pub(crate) fn share(&self, limit: Option<u64>) -> f64 {
-        let rows = self.rows.load(Ordering::Relaxed).max(1) as f64;
-        limit.map_or(1.0, |limit| (limit as f64 / rows).clamp(PAGE_MIN, 1.0))
-    }
-
     /// The share of the list a page built from its own rows (`page_first.rs`) costs: its `limit`
     /// rows of the last list's, with no floor, since it builds no other row.
     pub(crate) fn share_rows(&self, limit: Option<u64>) -> f64 {
@@ -753,7 +751,7 @@ impl ListGuard {
     /// byte pages costs about one list in all, not one per page.
     pub(crate) fn share_bytes(&self, budget: usize) -> f64 {
         let bytes = self.bytes.load(Ordering::Relaxed).max(1) as f64;
-        (budget as f64 / bytes).clamp(PAGE_MIN, 1.0)
+        (budget as f64 / bytes).clamp(BYTE_PAGE_MIN, 1.0)
     }
 
     /// Reserves `share` of a list on a connection's `pace`, then on every connection's
@@ -1471,11 +1469,11 @@ mod tests {
         assert!(third > Duration::from_millis(3900), "{third:?}");
         // Pages of a quarter: a list ahead and one page more, then the pace holds.
         let (pages, pace) = (guard(), StdMutex::default());
-        assert_eq!(pages.share(Some(100)), 0.25);
+        assert_eq!(pages.share_rows(Some(100)), 0.25);
         let waits: Vec<Duration> = (0..6).map(|_| pages.reserve(&pace, 0.25).unwrap()).collect();
         assert_eq!(waits.iter().filter(|w| !w.is_zero()).count(), 1, "{waits:?}");
-        // A page of one row (or none) still reads every key: it costs `PAGE_MIN`.
-        assert_eq!((pages.share(Some(1)), pages.share(Some(0))), (PAGE_MIN, PAGE_MIN));
+        // A page built from its own rows costs only them: no floor.
+        assert_eq!((pages.share_rows(Some(1)), pages.share_rows(Some(0))), (1.0 / 400.0, 0.0));
         // A new connection for each list: a window's `REPLIES` and one more, then they wait.
         let many = guard();
         let waits: Vec<Duration> =
