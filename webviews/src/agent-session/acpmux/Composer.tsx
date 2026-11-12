@@ -1509,7 +1509,9 @@ function ComposerFrame({
   };
   /// The chat the composer shows now, for work that answers after an await.
   const shownChat = useRef(sessionId);
-  shownChat.current = sessionId;
+  useLayoutEffect(() => {
+    shownChat.current = sessionId;
+  }, [sessionId]);
   /// The places in the text whose attachment the composer has not drawn: no chip of that id, staged
   /// or still being read. Read against the drawn chips, as the send's `placeInline` reads them.
   const lostPlaces = () =>
@@ -1520,52 +1522,50 @@ function ComposerFrame({
   const recovering = useRef(false);
   /// The send that waits for its lost places to come back: it goes once the composer draws them.
   const queuedSend = useRef<(() => void) | undefined>(undefined);
-  /// Brings back the attachments of `ids` from the host's kept copy of this chat's chips
+  /// Brings back the attachments of `ids` from the host's kept copy of chat `chat`'s chips
   /// (keptAttachments.ts). A read the host does not answer is asked again; the places stay. With a
   /// send waiting (`queuedSend`), a place the host answered it does not hold leaves the text and the
   /// prompt stays here with a note, never sent as the bare id; a host that never answers leaves the
   /// places and the prompt as they are, with a note.
-  const recoverLost = async (ids: readonly string[]) => {
+  const lookUpLost = async (store: KeptAttachments, chat: string, ids: readonly string[]) => {
+    let kept: ComposerAttachment[] | undefined;
+    for (let tries = 0; kept === undefined && tries < LOST_READ_TRIES; tries++) {
+      if (tries) await new Promise((resolve) => setTimeout(resolve, LOST_READ_RETRY_MS * 2 ** (tries - 1)));
+      if (shownChat.current !== chat) return;
+      kept = await store.read(chat).catch(() => undefined);
+    }
+    if (shownChat.current !== chat) return;
+    if (kept === undefined) {
+      if (queuedSend.current) {
+        queuedSend.current = undefined;
+        setAttachError(t("composer.attachmentsUnread"));
+      }
+      return;
+    }
+    const found = kept.filter((chip) => ids.includes(chip.id) && !attachmentId(chip.id));
+    const missing = ids.filter((id) => !attachmentId(id) && !found.some((chip) => chip.id === id));
+    if (queuedSend.current && missing.length) {
+      queuedSend.current = undefined;
+      for (const id of missing) field.current?.removeInline(id);
+      setAttachError(t("composer.attachmentsLost"));
+    }
+    if (!found.length) return;
+    attachmentsRef.current = appendAttachments(attachmentsRef.current, found);
+    setAttachments((current) => appendAttachments(current, found));
+  };
+  const recoverLost = (ids: readonly string[]) => {
     if (recovering.current || !keptAttachments || !sessionId) return;
     recovering.current = true;
     const chat = sessionId;
-    try {
-      let kept: ComposerAttachment[] | undefined;
-      for (let tries = 0; kept === undefined && tries < LOST_READ_TRIES; tries++) {
-        if (tries) await new Promise((resolve) => setTimeout(resolve, LOST_READ_RETRY_MS * 2 ** (tries - 1)));
-        if (shownChat.current !== chat) return;
-        kept = await keptAttachments.read(chat).catch(() => undefined);
-      }
-      if (shownChat.current !== chat) return;
-      if (kept === undefined) {
-        if (queuedSend.current) {
-          queuedSend.current = undefined;
-          setAttachError(t("composer.attachmentsUnread"));
-        }
-        return;
-      }
-      const found = kept.filter((chip) => ids.includes(chip.id) && !attachmentId(chip.id));
-      const missing = ids.filter((id) => !attachmentId(id) && !found.some((chip) => chip.id === id));
-      if (queuedSend.current && missing.length) {
-        queuedSend.current = undefined;
-        for (const id of missing) field.current?.removeInline(id);
-        setAttachError(t("composer.attachmentsLost"));
-      }
-      if (!found.length) return;
-      attachmentsRef.current = appendAttachments(attachmentsRef.current, found);
-      setAttachments((current) => appendAttachments(current, found));
-    } finally {
+    void lookUpLost(keptAttachments, chat, ids).then(() => {
       recovering.current = false;
-    }
-    // A send that came while this look-up was out (it served other places) looks up its own now:
-    // the places still with no chip, read from the text and the chips held right now.
-    if (queuedSend.current && shownChat.current === chat) {
+      // A send that came while this look-up was out (it served other places) looks up its own
+      // now: the places still with no chip, read from the text and the chips held right now.
+      if (!queuedSend.current || shownChat.current !== chat) return;
       const still = (field.current?.inlineIds() ?? []).filter((id) => !attachmentId(id));
-      if (still.some((id) => !ids.includes(id))) void recoverLostNow.current(still);
-    }
+      if (still.some((id) => !ids.includes(id))) recoverLost(still);
+    });
   };
-  const recoverLostNow = useRef(recoverLost);
-  recoverLostNow.current = recoverLost;
   /// The places already looked up in the host's kept chips for this chat (`recoverLost`).
   const triedLost = useRef(new Set<string>());
   useEffect(() => {
@@ -1583,7 +1583,7 @@ function ComposerFrame({
       const lost = lostPlaces().filter((id) => !triedLost.current.has(id));
       if (!lost.length) return;
       for (const id of lost) triedLost.current.add(id);
-      void recoverLost(lost);
+      recoverLost(lost);
     }, LOST_PLACES_SETTLE_MS);
     return () => clearTimeout(timer);
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- reads the field and the chips as they are when it settles.
@@ -1654,7 +1654,7 @@ function ComposerFrame({
     if (lost.length) {
       // One waiting send: a second Enter while its chips come back replaces it, never adds one.
       queuedSend.current = () => submitNow.current(force, steer, kept, route);
-      void recoverLost(lost);
+      recoverLost(lost);
       return false;
     }
     const inText = placeInline(typedText.trim(), attachments, {
